@@ -1,0 +1,286 @@
+#Definition des variables
+
+D=1000
+porosité=0.49
+wmax=490
+B=9
+Sfc=0.47
+Ks=124.3
+neta=0.75
+wbc=neta*wmax
+x<-exp(B*(1-Sfc))-1
+y<-log(Ks*(1/x))
+a<-wmax*(Sfc-y/B)
+b<-wmax/B
+c<-Ks/x
+wmax<-490
+
+
+
+
+
+#Importation des données
+
+library(readxl)
+df <- read_excel("C:/Users/hamdi/Desktop/Atelier/df.xlsx")
+Ep<-df$`Ep mm/jour`
+Pr<-df$`PLUIE+IRR mm/jour`
+w<-(df$`SWI observé`*wbc)/100
+
+
+     
+
+#Téléchargement de la librairie de RMSE
+
+library(Metrics)
+
+
+
+#Recherche de la sigma optimale en utilisant le RMSE
+
+c<-seq(from =0.1, to =3, by =0.1)
+n=100
+for (sigma in c  ){
+  
+  M<-c()
+  Gd<-c()
+  E<-c()
+  
+  w1<-c()
+  w1[1]<-0
+  for (i in 2:364){
+    
+    M[i-1]<-min(w1[i-1]/(sigma*wmax),1)
+    E[i-1]<-M[i-1]*Ep[i-1]
+    Gd[i-1]<- exp((w1[i-1]-a)/b)-c
+    w1[i]<-w1[i-1]+Pr[i-1]-E[i-1]-Gd[i-1]
+    
+  }
+  swiest<-(w1/wbc)*100
+  k=rmse(df$`SWI observé`,swiest)
+  if (k<n){
+    n<-k
+    r<-sigma
+  }
+}
+
+#Sigma optimale et qui correspond au RMSE minimum
+
+n
+r
+
+
+
+
+
+#creation de w1 estimé avec sigma optimale obtenue qui est "r"
+
+w1<-c()
+w1[1]<-0
+for (i in 2:364){
+  
+  M[i-1]<-min(w1[i-1]/(r*wmax),1)
+  E[i-1]<-M[i-1]*Ep[i-1]
+  Gd[i-1]<- exp((w1[i-1]-a)/b)-c
+  w1[i]<-w1[i-1]+Pr[i-1]-E[i-1]-Gd[i-1]
+  
+}
+
+
+
+
+
+#Visualisation de w1 (estimé) VS w observé
+
+plot(w1,type='l',col='red')
+lines(df$w,col='green')
+
+
+
+
+
+############################################################################
+
+
+
+#Dashboard
+
+
+
+
+
+
+library(shiny)
+library(shinythemes)
+library(shinydashboard)
+
+
+ui<-fluidPage(theme=shinytheme("darkly"),
+              
+              navbarPage(
+                "Dashboard",
+                tabPanel("Visualisation",
+                         
+                         box(plotOutput("plot2"), title = "Quantité d eau en sous sol", solidHeader = TRUE,
+                             status = 'warning'),
+                         box(plotOutput("plot3"), title = "Evapotranspiration potentielle", solidHeader = TRUE,
+                             status = 'warning'),
+                         box(plotOutput("plot4"), title = "Perméabilité du sol", solidHeader = TRUE,
+                             status = 'warning'),
+                         box(plotOutput("plot5"), title = "Précipitation journalière", solidHeader = TRUE,
+                             status = 'warning')
+                         
+                ),
+                
+                
+                
+                tabPanel(
+                  "Prediction",
+                  h1("Prédictions de la quantité d eau en sous sol à une date future"),
+                  h2("*"),
+                  h2("*"),
+                  
+                  
+                  
+                  sidebarPanel(
+                    
+                    h3("Introduire la date : "),
+                    dateInput("txt1","date",""),
+                    h3("Prédictions :"),
+                    verbatimTextOutput("txtout1",placeholder = TRUE),
+                    h3("Expectation :"),
+                    verbatimTextOutput("txtout2",placeholder = FALSE)
+                  ),
+                  
+                  mainPanel(
+                    h3("Evolution de quantité d eau en sous sol estimé et observé "),
+                    plotOutput("plot1")
+                    
+                    
+                  )
+                )
+                
+              )
+              
+)
+
+
+
+
+
+
+
+server<-function(input, output){
+  
+  output$plot1<-renderPlot(
+    {
+      x<-format(as.Date(df$DATE[364]),"%Y/%m/%d")
+      y<-format(as.Date(input$txt1),"%Y/%m/%d")
+      n<-julian(as.Date(y),as.Date(x))[1]
+      m1<-mean(Pr[1:30])
+      m2<-mean(Ep[1:30])
+      
+      for (i in 365:(365+n)){
+        M[i-1]<-min(w1[i-1]/(r*wmax),1)
+        E[i-1]<-M[i-1]*m2
+        Gd[i-1]<- exp((w1[i-1]-a)/b)-c
+        w1[i]<-w1[i-1]+m1-E[i-1]-Gd[i-1]
+      }
+      
+      
+      
+      
+      plot(w1,type='l',col='red',ylab = "w_estimé/w_observé",xlim = c(0,(365+n+10)))
+      lines(df$w,col='green')+points((365+n),w1[length(w1)])
+      legend("bottomright",legend = c("w_observé","w_estimé","prédiction"),col=c("green","red","black"),lty=1:1, cex=0.8,pch = c(NA_integer_,NA_integer_,1))
+    }
+  )
+  
+  
+  
+  output$plot2<-renderPlot(
+    {
+    plot(as.Date(df$DATE),df$w,type = 'l',col='blue',xlab = 'date',
+         ylab = 'w')
+    }
+  )
+  
+  output$plot3<-renderPlot(
+    {
+    plot(as.Date(df$DATE),df$`Ep mm/jour`,type = 'l',col='red',xlab = 'date',
+         ylab = 'Ep')
+    }
+  )
+  
+  output$plot4<-renderPlot(
+    {
+    plot(as.Date(df$DATE),df$`SWI observé`,type = 'l',col='green',xlab = 'date',
+         ylab = 'SWI')
+    }
+  )
+  
+  output$plot5<-renderPlot(
+    {
+    plot(as.Date(df$DATE),df$`PLUIE+IRR mm/jour`,type = 'l',col='black',xlab = 'date',
+         ylab = 'Pr+Irrigation')
+    }
+  )
+  
+  output$txtout1 <- renderText(
+    {
+    
+      x<-format(as.Date(df$DATE[364]),"%Y/%m/%d")
+      y<-format(as.Date(input$txt1),"%Y/%m/%d")
+      n<-julian(as.Date(y),as.Date(x))[1]
+      m1<-mean(Pr)
+      m2<-mean(Ep)
+      
+      for (i in 365:(365+n)){
+        M[i-1]<-min(w1[i-1]/(r*wmax),1)
+        E[i-1]<-M[i-1]*m2
+        Gd[i-1]<- exp((w1[i-1]-a)/b)-c
+        w1[i]<-w1[i-1]+m1-E[i-1]-Gd[i-1]
+      }
+      print(w1[length(w1)])
+  }
+  )
+  
+  output$txtout2<-renderText(
+    { 
+      x<-format(as.Date(df$DATE[364]),"%Y/%m/%d")
+      y<-format(as.Date(input$txt1),"%Y/%m/%d")
+      n<-julian(as.Date(y),as.Date(x))[1]
+      m1<-mean(Pr)
+      m2<-mean(Ep)
+      
+      for (i in 365:(365+n)){
+        M[i-1]<-min(w1[i-1]/(r*wmax),1)
+        E[i-1]<-M[i-1]*m2
+        Gd[i-1]<- exp((w1[i-1]-a)/b)-c
+        w1[i]<-w1[i-1]+m1-E[i-1]-Gd[i-1]
+      }
+      
+      
+      
+      if (w1[length(w1)]>=490){
+        paste("Risque de Ruissellement")
+      }
+      else {
+        paste("Pas de risque de ruissellement")
+      }
+      
+    }
+  )
+  
+  
+  
+  
+}
+
+
+
+shinyApp(ui, server)
+
+
+
+
